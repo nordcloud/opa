@@ -29,9 +29,10 @@ const (
 	ecsRelativePathEnvVar     = "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI"
 
 	// ref. https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-envvars.html
-	accessKeyEnvVar = "AWS_ACCESS_KEY_ID"
-	secretKeyEnvVar = "AWS_SECRET_ACCESS_KEY"
-	awsRegionEnvVar = "AWS_REGION"
+	accessKeyEnvVar     = "AWS_ACCESS_KEY_ID"
+	secretKeyEnvVar     = "AWS_SECRET_ACCESS_KEY"
+	securityTokenEnvVar = "AWS_SECURITY_TOKEN"
+	awsRegionEnvVar     = "AWS_REGION"
 )
 
 // awsCredentials represents the credentials obtained from an AWS credential provider
@@ -64,7 +65,10 @@ func (cs *awsEnvironmentCredentialService) credentials() (awsCredentials, error)
 	if creds.RegionName == "" {
 		return creds, errors.New("no " + awsRegionEnvVar + " set in environment")
 	}
-	creds.SecurityToken = "" // not applicable to this credential provider
+	// SecurityToken is required if using ENV credentials from assumed IAM role
+	// Missing SecurityToken results with 403 s3 error.
+	creds.SecurityToken = os.Getenv(securityTokenEnvVar)
+
 	return creds, nil
 }
 
