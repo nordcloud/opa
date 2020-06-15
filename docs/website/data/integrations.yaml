@@ -706,6 +706,44 @@ integrations:
     inventors:
       - sysdig
 
+  pomerium-authz:
+    title: Pomerium Access Proxy
+    description: Pomerium is an identity-aware proxy that enables secure access to internal applications.  OPA implements authorization under the hood.
+    labels:
+      layer: network
+      category: proxy
+    software:
+      - pomerium
+    blogs:
+      - https://www.pomerium.io/posts/2020/04/16/release-0-7/
+    code:
+      - https://github.com/pomerium/pomerium
+
+  coredns-authz:
+    title: CoreDNS Authorization
+    description: CoreDNS is a cloud-native DNS server written in Go.  OPA can be used as a plugin to filter queries and responses.
+    labels:
+      layer: network
+      category: dns
+    software:
+      - coredns
+    code:
+      - https://github.com/coredns/policy
+    inventors:
+      - infoblox
+
+  gluu-gateway-authz:
+    title: Gluu Gateway Authorization
+    description: Gluu Gateway provides API authentication and authorization for websites built on Kong.  Gluu provides an OPA plugin to handle API authorization.
+    labels:
+      layer: network
+      category: gateway
+    software:
+      - gluu
+      - kong
+    code:
+      - https://github.com/GluuFederation/gluu-gateway
+
 organizations:
   styra:
     name: Styra
@@ -794,6 +832,9 @@ organizations:
   wada-ama:
     name: World Anti-Doping Agency
     link: https://www.wada-ama.org
+  infoblox:
+    name: InfoBlox
+    link: https://www.infoblox.com/
 
 software:
   kubernetes:
@@ -880,4 +921,12 @@ software:
   sysdigsecure:
     name: Sysdig Secure
     link: https://sysdig.com/products/kubernetes-security/
-
+  pomerium:
+    name: Pomerium
+    link: https://www.pomerium.io/
+  coredns:
+    name: CoreDNS
+    link: https://coredns.io/
+  gluu:
+    name: Gluu Gateway
+    link: https://www.gluu.org/

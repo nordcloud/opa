@@ -1,5 +1,8 @@
+#include <mpdecimal.h>
+
 #include "malloc.h"
-#include "string.h"
+#include "mpd.h"
+#include "str.h"
 #include "value.h"
 
 #define OPA_ARRAY_INITIAL_CAP (10)
@@ -313,10 +316,28 @@ int opa_value_compare_number(opa_number_t *a, opa_number_t *b)
         return 0;
     }
 
-    double da = opa_number_as_float(a);
-    double db = opa_number_as_float(b);
+    if (a->repr == OPA_NUMBER_REPR_FLOAT && b->repr == OPA_NUMBER_REPR_FLOAT)
+    {
+        double da = opa_number_as_float(a);
+        double db = opa_number_as_float(b);
 
-    return opa_value_compare_float(da, db);
+        return opa_value_compare_float(da, db);
+    }
+
+    mpd_t *ba = opa_number_to_bf(&a->hdr);
+    mpd_t *bb = opa_number_to_bf(&b->hdr);
+
+    uint32_t status = 0;
+    int c = mpd_qcmp(ba, bb, &status);
+    if (status)
+    {
+        opa_abort("opa_value_compare_number");
+    }
+
+    mpd_del(ba);
+    mpd_del(bb);
+
+    return c;
 }
 
 int opa_value_compare_string(opa_string_t *a, opa_string_t *b)
@@ -958,7 +979,10 @@ void __opa_array_grow(opa_array_t *arr)
         elems[i] = arr->elems[i];
     }
 
-    opa_free(arr->elems);
+    if (arr->elems != NULL)
+    {
+        opa_free(arr->elems);
+    }
     arr->elems = elems;
 }
 
@@ -1035,6 +1059,18 @@ opa_value *opa_set()
     return __opa_set_with_buckets(OPA_SET_MIN_BUCKETS);
 }
 
+opa_value *opa_set_with_cap(size_t n)
+{
+    size_t buckets = OPA_SET_MIN_BUCKETS;
+
+    while (n > (buckets * OPA_SET_LOAD_FACTOR))
+    {
+        buckets *= 2;
+    }
+
+    return __opa_set_with_buckets(buckets);
+}
+
 void opa_value_boolean_set(opa_value *v, int b)
 {
     opa_boolean_t *ret = opa_cast_boolean(v);
@@ -1079,16 +1115,16 @@ void opa_array_sort(opa_array_t *arr, opa_compare_fn cmp_fn)
 {
     for (size_t i = 1; i < arr->len; i++)
     {
-        opa_array_elem_t elem = arr->elems[i];
+        opa_value *elem = arr->elems[i].v;
         size_t j = i - 1;
 
-        while (j >= 0 && cmp_fn(arr->elems[j].v, elem.v) > 0)
+        while (j >= 0 && cmp_fn(arr->elems[j].v, elem) > 0)
         {
-            arr->elems[j + 1] = arr->elems[j];
+            arr->elems[j + 1].v = arr->elems[j].v;
             j = j - 1;
         }
 
-        arr->elems[j + 1] = elem;
+        arr->elems[j + 1].v = elem;
     }
 }
 

@@ -12,6 +12,12 @@ production users that have added themselves (in alphabetical order):
   (e.g., platform, service, etc.) and distributed via S3. Custom log infrastructure
   consumes decision logs. For more information see this talk from [OPA Summit 2019](https://www.youtube.com/watch?v=nvRTO8xjmrg).
 
+* [Bisnode](https://www.bisnode.com) uses OPA for a wide range of use cases,
+  including microservice authorization, fine grained kubernetes authorization,
+  validating and mutating admission control and CI/CD pipeline testing. Built
+  and maintains some OPA related tools and libraries, primarily to help
+  integrate OPA in the Java/JVM ecosystem, [see `github.com/Bisnode`](https://github.com/Bisnode).
+
 * [bol.com](https://www.bol.com/) uses OPA for a mix of
   validating and mutating admission control use cases in their
   Kubernetes clusters. Use cases include patching image pull secrets,
@@ -88,12 +94,24 @@ production users that have added themselves (in alphabetical order):
   has enabled Plex to have a consistent means of policy enforcement,
   no matter the environment.
 
+* [Splash]([https://splashthat.com) uses OPA to handle fine-grained authorization
+  across its entire platform, implemented as both a sidecar in Kubernetes and a separate 
+  container on bare instances. Policies and datasets are recompiled and updated based 
+  on changes to users' roles and permissions.
+  
 * [SAP/InfraBox](https://github.com/SAP/Infrabox) integrates OPA to
   implement authorization over HTTP API resources. OPA policies
   evaluate user and permission data replicated from Postgres to make
   access control decisions over projects, collaborators, jobs,
   etc. SAP/Infrabox is used in production within SAP and has several
   external users.
+
+* [T-Mobile](https://www.t-mobile.com) uses OPA as a core component for their
+  [MagTape](https://github.com/tmobile/magtape/) project that enforces best 
+  practices and secure configurations across their fleet of Kubernetes 
+  clusters (more info in [this blog post](https://opensource.t-mobile.com/blog/posts/rolling-out-the-magenta-tape/)). 
+  T-Mobile also leverages OPA to enforce authorization workflows within their 
+  Corporate Delivery Platform (CI/CD).
 
 * [Tremolo Security](https://www.tremolosecurity.com/) uses OPA at a
   London-based financial services company to inject annotations and

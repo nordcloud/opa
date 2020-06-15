@@ -12,7 +12,6 @@ import (
 	"math/rand"
 	"net/http"
 	"reflect"
-	"strings"
 	"sync"
 	"time"
 
@@ -20,6 +19,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/open-policy-agent/opa/ast"
+	"github.com/open-policy-agent/opa/internal/ref"
 	"github.com/open-policy-agent/opa/plugins"
 	"github.com/open-policy-agent/opa/plugins/rest"
 	"github.com/open-policy-agent/opa/rego"
@@ -46,6 +46,7 @@ type EventV1 struct {
 	Input       *interface{}            `json:"input,omitempty"`
 	Result      *interface{}            `json:"result,omitempty"`
 	Erased      []string                `json:"erased,omitempty"`
+	Masked      []string                `json:"masked,omitempty"`
 	Error       error                   `json:"error,omitempty"`
 	RequestedBy string                  `json:"requested_by"`
 	Timestamp   time.Time               `json:"timestamp"`
@@ -170,17 +171,12 @@ func (c *Config) validateAndInjectDefaults(services []string, plugins []string) 
 	}
 
 	var err error
-	c.maskDecisionRef, err = parsePathToRef(*c.MaskDecision)
+	c.maskDecisionRef, err = ref.ParseDataPath(*c.MaskDecision)
 	if err != nil {
 		return errors.Wrap(err, "invalid mask_decision in decision_logs")
 	}
 
 	return nil
-}
-
-func parsePathToRef(s string) (ast.Ref, error) {
-	s = strings.Replace(strings.Trim(s, "/"), "/", ".", -1)
-	return ast.ParseRef("data." + s)
 }
 
 // Plugin implements decision log buffering and uploading.
@@ -523,13 +519,16 @@ func (p *Plugin) maskEvent(ctx context.Context, txn storage.Transaction, event *
 		return nil
 	}
 
-	ptrs, err := resultValueToPtrs(rs[0].Expressions[0].Value)
+	mRules, err := resultValueToMaskRules(rs[0].Expressions[0].Value)
 	if err != nil {
 		return err
 	}
 
-	for _, ptr := range ptrs {
-		ptr.Erase(event)
+	for _, mRule := range mRules {
+		err := mRule.Mask(event)
+		if err != nil {
+			p.logError("mask rule skipped: %s: %s", mRule.String(), err.Error())
+		}
 	}
 
 	return nil

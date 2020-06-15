@@ -57,6 +57,7 @@ type TestRuntime struct {
 	Cancel  context.CancelFunc
 	Client  *http.Client
 	url     string
+	diagURL string
 	urlMtx  *sync.Mutex
 }
 
@@ -79,6 +80,18 @@ func NewTestRuntime(params runtime.Params) (*TestRuntime, error) {
 		Client:  &http.Client{},
 		urlMtx:  new(sync.Mutex),
 	}, nil
+}
+
+// WrapRuntime creates a new TestRuntime by wrapping an existing runtime
+func WrapRuntime(ctx context.Context, cancel context.CancelFunc, rt *runtime.Runtime) *TestRuntime {
+	return &TestRuntime{
+		Params:  rt.Params,
+		Runtime: rt,
+		Ctx:     ctx,
+		Cancel:  cancel,
+		Client:  &http.Client{},
+		urlMtx:  new(sync.Mutex),
+	}
 }
 
 // RunAPIServerTests will start the OPA runtime serving with a given
@@ -126,6 +139,22 @@ func (t *TestRuntime) URL() string {
 	// will need to determine the URLs themselves.
 	addr := addrs[0]
 
+	parsed, err := t.AddrToURL(addr)
+	if err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
+
+	t.url = parsed
+
+	return t.url
+}
+
+// AddrToURL generates a full URL from an address, as configured on the runtime.
+// This can include fully qualified urls, just host/ip, with port, or only port
+// (eg, "localhost", ":8181", "http://foo", etc). If the runtime is configured
+// with HTTPS certs it will generate an appropriate URL.
+func (t *TestRuntime) AddrToURL(addr string) (string, error) {
 	if strings.HasPrefix(addr, ":") {
 		addr = "localhost" + addr
 	}
@@ -140,13 +169,10 @@ func (t *TestRuntime) URL() string {
 
 	parsed, err := url.Parse(addr)
 	if err != nil {
-		fmt.Printf("Failed to parse listening address of server: %s", err)
-		os.Exit(1)
+		return "", fmt.Errorf("failed to parse listening address of server: %s", err)
 	}
 
-	t.url = parsed.String()
-
-	return t.url
+	return parsed.String(), nil
 }
 
 func (t *TestRuntime) runTests(m *testing.M, suppressLogs bool) int {
@@ -168,7 +194,7 @@ func (t *TestRuntime) runTests(m *testing.M, suppressLogs bool) int {
 	}
 
 	// wait for the server to be ready
-	err := t.waitForServer()
+	err := t.WaitForServer()
 	if err != nil {
 		return 1
 	}
@@ -189,15 +215,16 @@ func (t *TestRuntime) runTests(m *testing.M, suppressLogs bool) int {
 	return errc
 }
 
-func (t *TestRuntime) waitForServer() error {
+// WaitForServer will block until the server is running and passes a health check.
+func (t *TestRuntime) WaitForServer() error {
 	delay := time.Duration(100) * time.Millisecond
 	retries := 100 // 10 seconds before we give up
 	for i := 0; i < retries; i++ {
 		// First make sure it has started listening and we have an address
 		if t.URL() != "" {
 			// Then make sure it has started serving
-			resp, err := http.Get(t.URL() + "/health")
-			if err == nil && resp.StatusCode == http.StatusOK {
+			err := t.HealthCheck(t.URL())
+			if err == nil {
 				logrus.Infof("Test server ready and listening on: %s", t.URL())
 				return nil
 			}
@@ -278,4 +305,24 @@ func (t *TestRuntime) GetDataWithInputTyped(path string, input interface{}, resp
 	}
 
 	return json.Unmarshal(bs, response)
+}
+
+// HealthCheck will query /health and return an error if the server is not healthy
+func (t *TestRuntime) HealthCheck(url string, params ...string) error {
+	reqURL := url + "/health"
+	if len(params) > 0 {
+		reqURL += "?" + strings.Join(params, "&")
+	}
+	req, err := http.NewRequest("GET", url+"/health", nil)
+	if err != nil {
+		return fmt.Errorf("unexpected error creating request: %s", err)
+	}
+	resp, err := t.Client.Do(req)
+	if err != nil {
+		return fmt.Errorf("unexpected error: %s", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected response: %d %s", resp.StatusCode, resp.Status)
+	}
+	return nil
 }

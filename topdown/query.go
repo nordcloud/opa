@@ -22,24 +22,26 @@ type QueryResult map[ast.Var]*ast.Term
 
 // Query provides a configurable interface for performing query evaluation.
 type Query struct {
-	seed             io.Reader
-	cancel           Cancel
-	query            ast.Body
-	queryCompiler    ast.QueryCompiler
-	compiler         *ast.Compiler
-	store            storage.Store
-	txn              storage.Transaction
-	input            *ast.Term
-	tracers          []Tracer
-	unknowns         []*ast.Term
-	partialNamespace string
-	metrics          metrics.Metrics
-	instr            *Instrumentation
-	disableInlining  []ast.Ref
-	genvarprefix     string
-	runtime          *ast.Term
-	builtins         map[string]*Builtin
-	indexing         bool
+	seed              io.Reader
+	cancel            Cancel
+	query             ast.Body
+	queryCompiler     ast.QueryCompiler
+	compiler          *ast.Compiler
+	store             storage.Store
+	txn               storage.Transaction
+	input             *ast.Term
+	tracers           []QueryTracer
+	plugTraceVars     bool
+	unknowns          []*ast.Term
+	partialNamespace  string
+	skipSaveNamespace bool
+	metrics           metrics.Metrics
+	instr             *Instrumentation
+	disableInlining   []ast.Ref
+	genvarprefix      string
+	runtime           *ast.Term
+	builtins          map[string]*Builtin
+	indexing          bool
 }
 
 // Builtin represents a built-in function that queries can call.
@@ -97,8 +99,31 @@ func (q *Query) WithInput(input *ast.Term) *Query {
 }
 
 // WithTracer adds a query tracer to use during evaluation. This is optional.
+// Deprecated: Use WithQueryTracer instead.
 func (q *Query) WithTracer(tracer Tracer) *Query {
+	qt, ok := tracer.(QueryTracer)
+	if !ok {
+		qt = wrapLegacyTracer(tracer)
+	}
+	return q.WithQueryTracer(qt)
+}
+
+// WithQueryTracer adds a query tracer to use during evaluation. This is optional.
+// Disabled QueryTracers will be ignored.
+func (q *Query) WithQueryTracer(tracer QueryTracer) *Query {
+	if !tracer.Enabled() {
+		return q
+	}
+
 	q.tracers = append(q.tracers, tracer)
+
+	// If *any* of the tracers require local variable metadata we need to
+	// enabled plugging local trace variables.
+	conf := tracer.Config()
+	if conf.PlugLocalVars {
+		q.plugTraceVars = true
+	}
+
 	return q
 }
 
@@ -128,6 +153,13 @@ func (q *Query) WithUnknowns(terms []*ast.Term) *Query {
 // valid package path component.
 func (q *Query) WithPartialNamespace(ns string) *Query {
 	q.partialNamespace = ns
+	return q
+}
+
+// WithSkipPartialNamespace disables namespacing of saved support rules that are generated
+// from the original policy (rules which are completely syntethic are still namespaced.)
+func (q *Query) WithSkipPartialNamespace(yes bool) *Query {
+	q.skipSaveNamespace = yes
 	return q
 }
 
@@ -185,36 +217,41 @@ func (q *Query) PartialRun(ctx context.Context) (partials []ast.Body, support []
 	f := &queryIDFactory{}
 	b := newBindings(0, q.instr)
 	e := &eval{
-		ctx:           ctx,
-		seed:          q.seed,
-		cancel:        q.cancel,
-		query:         q.query,
-		queryCompiler: q.queryCompiler,
-		queryIDFact:   f,
-		queryID:       f.Next(),
-		bindings:      b,
-		compiler:      q.compiler,
-		store:         q.store,
-		baseCache:     newBaseCache(),
-		targetStack:   newRefStack(),
-		txn:           q.txn,
-		input:         q.input,
-		tracers:       q.tracers,
-		instr:         q.instr,
-		builtins:      q.builtins,
-		builtinCache:  builtins.Cache{},
-		virtualCache:  newVirtualCache(),
-		saveSet:       newSaveSet(q.unknowns, b, q.instr),
-		saveStack:     newSaveStack(),
-		saveSupport:   newSaveSupport(),
-		saveNamespace: ast.StringTerm(q.partialNamespace),
-		genvarprefix:  q.genvarprefix,
-		runtime:       q.runtime,
-		indexing:      q.indexing,
+		ctx:                ctx,
+		seed:               q.seed,
+		cancel:             q.cancel,
+		query:              q.query,
+		queryCompiler:      q.queryCompiler,
+		queryIDFact:        f,
+		queryID:            f.Next(),
+		bindings:           b,
+		compiler:           q.compiler,
+		store:              q.store,
+		baseCache:          newBaseCache(),
+		targetStack:        newRefStack(),
+		txn:                q.txn,
+		input:              q.input,
+		tracers:            q.tracers,
+		traceEnabled:       len(q.tracers) > 0,
+		plugTraceVars:      q.plugTraceVars,
+		instr:              q.instr,
+		builtins:           q.builtins,
+		builtinCache:       builtins.Cache{},
+		virtualCache:       newVirtualCache(),
+		comprehensionCache: newComprehensionCache(),
+		saveSet:            newSaveSet(q.unknowns, b, q.instr),
+		saveStack:          newSaveStack(),
+		saveSupport:        newSaveSupport(),
+		saveNamespace:      ast.StringTerm(q.partialNamespace),
+		skipSaveNamespace:  q.skipSaveNamespace,
+		inliningControl:    &inliningControl{},
+		genvarprefix:       q.genvarprefix,
+		runtime:            q.runtime,
+		indexing:           q.indexing,
 	}
 
 	if len(q.disableInlining) > 0 {
-		e.disableInlining = [][]ast.Ref{q.disableInlining}
+		e.inliningControl.PushDisable(q.disableInlining, false)
 	}
 
 	e.caller = e
@@ -285,28 +322,31 @@ func (q *Query) Iter(ctx context.Context, iter func(QueryResult) error) error {
 	}
 	f := &queryIDFactory{}
 	e := &eval{
-		ctx:           ctx,
-		seed:          q.seed,
-		cancel:        q.cancel,
-		query:         q.query,
-		queryCompiler: q.queryCompiler,
-		queryIDFact:   f,
-		queryID:       f.Next(),
-		bindings:      newBindings(0, q.instr),
-		compiler:      q.compiler,
-		store:         q.store,
-		baseCache:     newBaseCache(),
-		targetStack:   newRefStack(),
-		txn:           q.txn,
-		input:         q.input,
-		tracers:       q.tracers,
-		instr:         q.instr,
-		builtins:      q.builtins,
-		builtinCache:  builtins.Cache{},
-		virtualCache:  newVirtualCache(),
-		genvarprefix:  q.genvarprefix,
-		runtime:       q.runtime,
-		indexing:      q.indexing,
+		ctx:                ctx,
+		seed:               q.seed,
+		cancel:             q.cancel,
+		query:              q.query,
+		queryCompiler:      q.queryCompiler,
+		queryIDFact:        f,
+		queryID:            f.Next(),
+		bindings:           newBindings(0, q.instr),
+		compiler:           q.compiler,
+		store:              q.store,
+		baseCache:          newBaseCache(),
+		targetStack:        newRefStack(),
+		txn:                q.txn,
+		input:              q.input,
+		tracers:            q.tracers,
+		traceEnabled:       len(q.tracers) > 0,
+		plugTraceVars:      q.plugTraceVars,
+		instr:              q.instr,
+		builtins:           q.builtins,
+		builtinCache:       builtins.Cache{},
+		virtualCache:       newVirtualCache(),
+		comprehensionCache: newComprehensionCache(),
+		genvarprefix:       q.genvarprefix,
+		runtime:            q.runtime,
+		indexing:           q.indexing,
 	}
 	e.caller = e
 	q.startTimer(metrics.RegoQueryEval)

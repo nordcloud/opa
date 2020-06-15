@@ -313,6 +313,38 @@ func TestHelp(t *testing.T) {
 	}
 }
 
+func TestHelpWithOPAVersionReport(t *testing.T) {
+	ctx := context.Background()
+	store := inmem.New()
+	var buffer bytes.Buffer
+	repl := newRepl(store, &buffer)
+
+	// empty report
+	repl.SetOPAVersionReport(nil)
+	repl.OneShot(ctx, "help")
+
+	if strings.Contains(buffer.String(), "Version Info") {
+		t.Fatalf("Unexpected output from help: \"%v\"", buffer.String())
+	}
+
+	buffer.Reset()
+
+	repl.SetOPAVersionReport([][2]string{
+		{"Latest Upstream Version", "0.19.2"},
+		{"Download", "https://openpolicyagent.org/downloads/v0.19.2/opa_darwin_amd64"},
+		{"Release Notes", "https://github.com/open-policy-agent/opa/releases/tag/v0.19.2"},
+	})
+	repl.OneShot(ctx, "help")
+
+	exp := `Latest Upstream Version : 0.19.2
+Download                : https://openpolicyagent.org/downloads/v0.19.2/opa_darwin_amd64
+Release Notes           : https://github.com/open-policy-agent/opa/releases/tag/v0.19.2`
+
+	if !strings.Contains(buffer.String(), exp) {
+		t.Fatalf("Expected output from help to contain: \"%v\" but got \"%v\"", exp, buffer.String())
+	}
+}
+
 func TestShowDebug(t *testing.T) {
 	ctx := context.Background()
 	store := inmem.New()
@@ -904,6 +936,44 @@ func TestEvalConstantRule(t *testing.T) {
 	if result != "true\n" {
 		t.Errorf("Expected pi > 3 to be true but got: %v", result)
 		return
+	}
+}
+
+func TestEvalBooleanFlags(t *testing.T) {
+	ctx := context.Background()
+	store := newTestStore()
+	var buffer bytes.Buffer
+	repl := newRepl(store, &buffer)
+	repl.OneShot(ctx, "flags = [true, true]")
+	repl.OneShot(ctx, "flags[_]")
+	expected := strings.TrimSpace(`
+Rule 'flags' defined in package repl. Type 'show' to see rules.
++----------+
+| flags[_] |
++----------+
+| true     |
+| true     |
++----------+`)
+	result := strings.TrimSpace(buffer.String())
+	if result != expected {
+		t.Errorf("Expected a single column with boolean output but got:\n%v", result)
+	}
+	buffer.Reset()
+
+	repl.OneShot(ctx, `flags2 = [true, "x", 1]`)
+	repl.OneShot(ctx, "flags2[_]")
+	expected = strings.TrimSpace(`
+Rule 'flags2' defined in package repl. Type 'show' to see rules.
++-----------+
+| flags2[_] |
++-----------+
+| true      |
+| "x"       |
+| 1         |
++-----------+`)
+	result = strings.TrimSpace(buffer.String())
+	if result != expected {
+		t.Errorf("Expected a single column with boolean output but got:\n%v", result)
 	}
 }
 

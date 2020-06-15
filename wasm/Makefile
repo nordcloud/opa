@@ -5,13 +5,16 @@ WASM_BUILDER_VERSION := 1.0
 WASM_BUILDER_IMAGE := $(WASM_BUILDER_REPOSITORY):$(WASM_BUILDER_VERSION)
 WASM_OBJ_DIR := _obj
 
-$(shell mkdir -p $(WASM_OBJ_DIR))
-
 CFLAGS := \
 	-O3 \
+	-MD \
+	-MP \
 	-nostdinc \
 	-nodefaultlibs \
-	--target=wasm32-unknown-unknown-wasm
+	--target=wasm32-unknown-unknown-wasm \
+	-I src/lib \
+	-I src/libmpdec \
+	-DCONFIG_32 -DANSI
 
 .PHONY: all
 all: build test
@@ -37,54 +40,52 @@ test:
 hack:
 	@$(DOCKER) run -it --rm -v $(CURDIR):/src $(WASM_BUILDER_IMAGE)
 
-$(WASM_OBJ_DIR)/malloc.wasm: src/malloc.c
-	@$(CC) $(CFLAGS) -c $^ -o $@
+$(shell mkdir -p $(WASM_OBJ_DIR)/src/lib)
+$(shell mkdir -p $(WASM_OBJ_DIR)/src/libmpdec)
+$(shell mkdir -p $(WASM_OBJ_DIR)/src)
+$(shell mkdir -p $(WASM_OBJ_DIR)/tests)
 
-$(WASM_OBJ_DIR)/printf.wasm: src/printf.c
-	@$(CC) $(CFLAGS) -c $^ -o $@
+SRCS := $(wildcard src/*.c)
+LIB_SRCS := $(wildcard src/lib/*.c)
+LIB_MPDEC_SRCS := $(wildcard src/libmpdec/*.c)
+TEST_SRCS := $(wildcard tests/*.c)
 
-$(WASM_OBJ_DIR)/string.wasm: src/string.c
-	@$(CC) $(CFLAGS) -c $^ -o $@
+-include $(patsubst %.c,$(WASM_OBJ_DIR)/%.d,$(SRCS))
+-include $(patsubst %.c,$(WASM_OBJ_DIR)/%.d,$(LIB_SRCS))
+-include $(patsubst %.c,$(WASM_OBJ_DIR)/%.d,$(LIB_MPDEC_SRCS))
+-include $(patsubst %.c,$(WASM_OBJ_DIR)/%.d,$(TEST_SRCS))
 
-$(WASM_OBJ_DIR)/json.wasm: src/json.c
-	@$(CC) $(CFLAGS) -c $^ -o $@
+OBJS := $(patsubst %.c, $(WASM_OBJ_DIR)/%.wasm, $(SRCS))
+LIB_OBJS := $(patsubst %.c, $(WASM_OBJ_DIR)/%.wasm, $(LIB_SRCS))
+LIB_MPDEC_OBJS := $(patsubst %.c, $(WASM_OBJ_DIR)/%.wasm, $(LIB_MPDEC_SRCS))
+TEST_OBJS := $(patsubst %.c, $(WASM_OBJ_DIR)/%.wasm, $(TEST_SRCS))
 
-$(WASM_OBJ_DIR)/value.wasm: src/value.c
-	@$(CC) $(CFLAGS) -c $^ -o $@
+$(OBJS): $(WASM_OBJ_DIR)/src/%.wasm: src/%.c
+	$(CC) $(CFLAGS) -c -o $@ $<
 
-$(WASM_OBJ_DIR)/context.wasm: src/context.c
-	@$(CC) $(CFLAGS) -c $^ -o $@
+$(LIB_OBJS): $(WASM_OBJ_DIR)/src/lib/%.wasm: src/lib/%.c
+	$(CC) $(CFLAGS) -c -o $@ $<
 
-$(WASM_OBJ_DIR)/opa.wasm: $(WASM_OBJ_DIR)/malloc.wasm \
-		$(WASM_OBJ_DIR)/value.wasm \
-		$(WASM_OBJ_DIR)/printf.wasm \
-		$(WASM_OBJ_DIR)/string.wasm \
-		$(WASM_OBJ_DIR)/context.wasm \
-		$(WASM_OBJ_DIR)/json.wasm
-	@wasm-ld-8 \
+$(LIB_MPDEC_OBJS): $(WASM_OBJ_DIR)/src/libmpdec/%.wasm: src/libmpdec/%.c
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(TEST_OBJS): $(WASM_OBJ_DIR)/tests/%.wasm: tests/%.c
+	$(CC) $(CFLAGS) -I src -c -o $@ $<
+
+$(WASM_OBJ_DIR)/opa.wasm: $(OBJS) $(LIB_OBJS) $(LIB_MPDEC_OBJS)
+	wasm-ld-8 \
 			--allow-undefined-file=src/undefined.symbols \
 			--import-memory \
 			--no-entry \
 			--export-all \
-			$^ \
-			-o $@
+			-o $@ $^
 	@wasm2wat $(WASM_OBJ_DIR)/opa.wasm > $(WASM_OBJ_DIR)/opa.wast
 
-$(WASM_OBJ_DIR)/test.wasm: tests/test.c
-	@$(CC) $(CFLAGS) -I src -c $^ -o $@
-
-$(WASM_OBJ_DIR)/opa-test.wasm: $(WASM_OBJ_DIR)/test.wasm \
-		$(WASM_OBJ_DIR)/malloc.wasm \
-		$(WASM_OBJ_DIR)/value.wasm \
-		$(WASM_OBJ_DIR)/printf.wasm \
-		$(WASM_OBJ_DIR)/string.wasm \
-		$(WASM_OBJ_DIR)/context.wasm \
-		$(WASM_OBJ_DIR)/json.wasm
+$(WASM_OBJ_DIR)/opa-test.wasm: $(OBJS) $(LIB_OBJS) $(LIB_MPDEC_OBJS) $(TEST_OBJS)
 	@cat src/undefined.symbols tests/undefined.symbols > _obj/undefined.symbols
 	@wasm-ld-8 \
 			--allow-undefined-file=_obj/undefined.symbols \
 			--import-memory \
 			--no-entry \
 			--export-all \
-			$^ \
-			-o $@
+			-o $@ $^

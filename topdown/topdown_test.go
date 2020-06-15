@@ -1414,7 +1414,7 @@ func TestTopDownJSONBuiltins(t *testing.T) {
 		expected interface{}
 	}{
 		{"marshal", []string{`p = x { json.marshal([{"foo": {1,2,3}}], x) }`}, `"[{\"foo\":[1,2,3]}]"`},
-		{"unmarshal", []string{`p = x { json.unmarshal("[{\"foo\":[1,2,3]}]", x) }`}, `[{"foo": [1,2,3]}]"`},
+		{"unmarshal", []string{`p = x { json.unmarshal("[{\"foo\":[1,2,3]}]", x) }`}, `[{"foo": [1,2,3]}]`},
 		{"unmarshal-non-string", []string{`p = x { json.unmarshal(data.a[0], x) }`}, &Error{Code: TypeErr, Message: "operand 1 must be string but got number"}},
 		{"yaml round-trip", []string{`p = y { yaml.marshal([{"foo": {1,2,3}}], x); yaml.unmarshal(x, y) }`}, `[{"foo": [1,2,3]}]`},
 		{"yaml unmarshal error", []string{`p { yaml.unmarshal("[1,2,3", _) } `}, &Error{Code: BuiltinErr, Message: "yaml: line 1: did not find"}},
@@ -2384,6 +2384,25 @@ func TestTopDownWithKeyword(t *testing.T) {
 			modules: []string{`package ex
 			setl[x] { data.foo[x] }`},
 			rules: []string{`p = true { data.ex.setl[1] with data.foo as {1} }`},
+		},
+		{
+			// NOTE(tsandall): This case assumes that partial sets are not memoized.
+			// If we change that, it'll be harder to test that the comprehension
+			// cache is invalidated.
+			note: "invalidate comprehension cache",
+			exp:  `[[{"b": ["a", "c"]}], [{"b": ["a"]}]]`,
+			modules: []string{`package ex
+				s[x] {
+					x = {v: ks |
+						v = input[i]
+						ks = {k | v = input[k]}
+					}
+				}
+			`},
+			rules: []string{`p = [x, y] {
+				x = data.ex.s with input as {"a": "b", "c": "b"}
+				y = data.ex.s with input as {"a": "b"}
+			}`},
 		},
 	}
 

@@ -2,9 +2,11 @@
 # Use of this source code is governed by an Apache2
 # license that can be found in the LICENSE file.
 
-ARG VARIANT
+ARG BASE
 
-FROM gcr.io/distroless/base${VARIANT}
+FROM gcr.io/distroless/base as certs
+
+FROM ${BASE}
 
 # Any non-zero number will do, and unfortunately a named user will not, as k8s
 # pod securityContext runAsNonRoot can't resolve the user ID:
@@ -13,6 +15,7 @@ FROM gcr.io/distroless/base${VARIANT}
 ARG USER=0
 
 MAINTAINER Torin Sandall <torinsandall@gmail.com>
+COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY opa_linux_amd64 /opa
 USER ${USER}
 ENTRYPOINT ["/opa"]

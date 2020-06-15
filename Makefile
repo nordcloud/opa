@@ -2,10 +2,13 @@
 # Use of this source code is governed by an Apache2
 # license that can be found in the LICENSE file.
 
-VERSION := 0.20.0-dev
+VERSION := 0.21.0-dev
+
+CGO_ENABLED ?= 0
 
 # Force modules on and to use the vendor directory.
-GO := GO111MODULE=on GOFLAGS=-mod=vendor go
+GO := CGO_ENABLED=$(CGO_ENABLED) GO111MODULE=on GOFLAGS=-mod=vendor go
+
 GOVERSION := $(shell cat ./.go-version)
 GOARCH := $(shell go env GOARCH)
 GOOS := $(shell go env GOOS)
@@ -165,7 +168,7 @@ wasm-lib-clean:
 
 .PHONY: wasm-rego-testgen-install
 wasm-rego-testgen-install:
-	$(GO) install -i ./test/wasm/cmd/wasm-rego-testgen
+	$(GO) install ./test/wasm/cmd/wasm-rego-testgen
 
 ######################################################
 #
@@ -182,7 +185,11 @@ travis-go:
 		-w /src \
 		-e GOCACHE=/src/.go/cache \
 		golang:$(GOVERSION) \
-		make build-linux build-windows build-darwin go-test perf check
+		make build-linux build-windows build-darwin go-test perf travis-check
+
+.PHONY: travis-check
+travis-check: check
+	./build/check-working-copy.sh
 
 # The travis-wasm target exists because we do not want to run the generate
 # target outside of Docker. This step duplicates the the wasm-rego-test target
@@ -209,9 +216,9 @@ build-windows:
 
 .PHONY: image-quick
 image-quick:
-	$(DOCKER) build -t $(IMAGE):$(VERSION) .
-	$(DOCKER) build -t $(IMAGE):$(VERSION)-debug --build-arg VARIANT=:debug .
-	$(DOCKER) build -t $(IMAGE):$(VERSION)-rootless --build-arg USER=1000 .
+	$(DOCKER) build -t $(IMAGE):$(VERSION) --build-arg BASE=scratch .
+	$(DOCKER) build -t $(IMAGE):$(VERSION)-debug --build-arg BASE=gcr.io/distroless/base:debug .
+	$(DOCKER) build -t $(IMAGE):$(VERSION)-rootless --build-arg USER=1000 --build-arg BASE=scratch .
 
 .PHONY: push
 push:

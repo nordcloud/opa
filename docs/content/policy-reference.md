@@ -1,12 +1,249 @@
 ---
 title: Policy Reference
 kind: documentation
-weight: 4
+weight: 3
 toc: true
 ---
 
-This document is the authoritative specification of the Rego policy language
-(V1). All policies in OPA are written in Rego.
+## Assignment and Equality
+
+```live:assign_equality:query:read_only
+# assign variable x to value of field foo.bar.baz in input
+x := input.foo.bar.baz
+
+# check if variable x has same value as variable y
+x == y
+
+# check if variable x is a set containing "foo" and "bar"
+x == {"foo", "bar"}
+
+# OR
+
+{"foo", "bar"} == x
+```
+
+## Lookup
+
+### Arrays
+
+```live:lookup/arrays:query:read_only
+# lookup value at index 0
+val := arr[0]
+
+ # check if value at index 0 is "foo"
+"foo" == arr[0]
+
+# find all indices i that have value "foo"
+"foo" == arr[i]
+
+# lookup last value
+val := arr[count(arr)-1]
+```
+
+### Objects
+
+```live:lookup/objects:query:read_only
+# lookup value for key "foo"
+val := obj["foo"]
+
+# check if value for key "foo" is "bar"
+"bar" == obj["foo"]
+
+# OR
+
+"bar" == obj.foo
+
+# check if key "foo" exists and is not false
+obj.foo
+
+# check if key assigned to variable k exists
+k := "foo"
+obj[k]
+
+# check if path foo.bar.baz exists and is not false
+obj.foo.bar.baz
+
+# check if path foo.bar.baz, foo.bar, or foo does not exist or is false
+not obj.foo.bar.bar
+```
+
+### Sets
+
+```live:lookup/sets:query:read_only
+# check if "foo" belongs to the set
+a_set["foo"]
+
+# check if "foo" DOES NOT belong to the set
+not a_set["foo"]
+
+# check if the array ["a", "b", "c"] belongs to the set
+a_set[["a", "b", "c"]]
+
+# find all arrays of the form [x, "b", z] in the set
+a_set[[x, "b", z]]
+```
+
+## Iteration
+
+### Arrays
+
+```live:iteration/arrays:query:read_only
+# iterate over indices i
+arr[i]
+
+# iterate over values
+val := arr[_]
+
+# iterate over index/value pairs
+val := arr[i]
+```
+
+### Objects
+
+```live:iteration/objects:query:read_only
+# iterate over keys
+obj[key]
+
+# iterate over values
+val := obj[_]
+
+# iterate over key/value pairs
+val := obj[key]
+```
+
+### Sets
+
+```live:iteration/sets:query:read_only
+# iterate over values
+set[val]
+```
+
+### Advanced
+
+```live:iteration/advanced:query:read_only
+# nested: find key k whose bar.baz array index i is 7
+foo[k].bar.baz[i] == 7
+
+# simultaneous: find keys in objects foo and bar with same value
+foo[k1] == bar[k2]
+
+# simultaneous self: find 2 keys in object foo with same value
+foo[k1] == foo[k2]; k1 != k2
+
+# multiple conditions: k has same value in both conditions
+foo[k].bar.baz[i] == 7; foo[k].qux > 3
+```
+
+## For All
+
+```live:iteration/forall:query:read_only
+# assert no values in set match predicate
+count({x | set[x]; f(x)}) == 0
+
+# assert all values in set make function f true
+count({x | set[x]; f(x)}) == count(set)
+
+# assert no values in set make function f true (using negation and helper rule)
+not any_match
+
+# assert all values in set make function f true (using negation and helper rule)
+not any_not_match
+```
+
+```live:iteration/forall:module:read_only
+any_match {
+    set[x]
+    f(x)
+}
+
+any_not_match {
+    set[x]
+    not f(x)
+}
+```
+
+## Rules
+
+In the examples below `...` represents one or more conditions.
+
+### Constants
+
+```live:rules/constants:module:read_only
+a = {1, 2, 3}
+b = {4, 5, 6}
+c = a | b
+```
+
+### Conditionals (Boolean)
+
+```live:rules/condbool:module:read_only
+# p is true if ...
+p = true { ...}
+
+# OR
+
+p { ... }
+```
+
+### Conditionals
+
+```live:rules/cond:module:read_only
+default a = 1
+a = 5 { ... }
+a = 100 { ... }
+```
+
+### Incremental
+
+```live:rules/incremental:module:read_only
+# a_set will contain values of x and values of y
+a_set[x] { ... }
+a_set[y] { ... }
+
+# a_map will contain key->value pairs x->y and w->z
+a_map[x] = y { ... }
+a_map[w] = z { ... }
+```
+
+### Ordered (Else)
+
+```live:rules/ordered:module:read_only
+default a = 1
+a = 5 { ... }
+else = 10 { ... }
+```
+
+### Functions (Boolean)
+
+```live:rules/funcs:module:read_only
+f(x, y) {
+    ...
+}
+
+# OR
+
+f(x, y) = true {
+    ...
+}
+```
+
+### Functions (Conditionals)
+
+```live:rules/condfuncs:module:read_only
+f(x) = "A" { x >= 90 }
+f(x) = "B" { x >= 80; x < 90 }
+f(x) = "C" { x >= 70; x < 80 }
+```
+
+## Tests
+
+```live:tests:module:read_only
+# define a rule that starts with test_
+test_NAME { ... }
+
+# override input.foo value using the 'with' keyword
+data.foo.bar.deny with input.foo as {"bar": [1,2,3]}}
+```
 
 ## Built-in Functions
 
@@ -126,7 +363,7 @@ complex types.
 | <span class="opa-keep-it-together">``re_match(pattern, value)``</span> | true if the ``value`` matches the regex ``pattern`` |
 | <span class="opa-keep-it-together">``output := regex.split(pattern, string)``</span> | ``output`` is ``array[string]`` representing elements of ``string`` separated by ``pattern`` |
 | <span class="opa-keep-it-together">``regex.globs_match(glob1, glob2)``</span> | true if the intersection of regex-style globs ``glob1`` and ``glob2`` matches a non-empty set of non-empty strings. The set of regex symbols is limited for this builtin: only ``.``, ``*``, ``+``, ``[``, ``-``, ``]`` and ``\`` are treated as special symbols. |
-| <span class="opa-keep-it-normal">``output := regex.template_match(patter, string, delimiter_start, delimiter_end)``</span> | ``output`` is true if ``string`` matches ``pattern``. ``pattern`` is a string containing ``0..n`` regular expressions delimited by ``delimiter_start`` and ``delimiter_end``. Example ``regex.template_match("urn:foo:{.*}", "urn:foo:bar:baz", "{", "}")`` returns ``true``. |
+| <span class="opa-keep-it-normal">``output := regex.template_match(pattern, string, delimiter_start, delimiter_end)``</span> | ``output`` is true if ``string`` matches ``pattern``. ``pattern`` is a string containing ``0..n`` regular expressions delimited by ``delimiter_start`` and ``delimiter_end``. Example ``regex.template_match("urn:foo:{.*}", "urn:foo:bar:baz", "{", "}")`` returns ``true``. |
 | <span class="opa-keep-it-together">``output := regex.find_n(pattern, string, number)``</span> | ``output`` is an ``array[string]`` with the ``number`` of values matching the ``pattern``. A ``number`` of ``-1`` means all matches. |
 | <span class="opa-keep-it-together">``output := regex.find_all_string_submatch_n(pattern, string, number)``</span> | ``output`` is an ``array[array[string]]`` with the outer `array` including a ``number`` of matches which match the ``pattern``. A ``number`` of ``-1`` means all matches. |
 
@@ -182,7 +419,7 @@ The following table shows examples of how ``glob.match`` works:
 
 | Built-in | Description |
 | --- | --- |
-| <span class="opa-keep-it-together">``output := units.parse_bytes(x)``</span> | ``output`` is ``x`` converted to a number with support for standard byte units (e.g., KB, KiB, etc.) KB, MB, GB, and TB are treated as decimal units and KiB, MiB, GiB, and TiB are treated as binary units. |
+| <span class="opa-keep-it-together">``output := units.parse_bytes(x)``</span> | ``output`` is ``x`` converted to a number with support for standard byte units (e.g., KB, KiB, etc.) KB, MB, GB, and TB are treated as decimal units and KiB, MiB, GiB, and TiB are treated as binary units. The bytes symbol (b/B) in the unit is optional and omitting it wil give the same result (e.g. Mi and MiB) |
 
 ### Types
 
@@ -350,11 +587,19 @@ io.jwt.encode_sign_raw(
 | Built-in | Description |
 | ------- |-------------|
 | <span class="opa-keep-it-together">``output := io.jwt.verify_rs256(string, certificate)``</span> | ``output`` is ``true`` if the RS256 signature of the input token is valid. ``certificate`` is the PEM encoded certificate, PEM encoded public key, or the JWK key (set) used to verify the RS256 signature|
+| <span class="opa-keep-it-together">``output := io.jwt.verify_rs384(string, certificate)``</span> | ``output`` is ``true`` if the RS384 signature of the input token is valid. ``certificate`` is the PEM encoded certificate, PEM encoded public key, or the JWK key (set) used to verify the RS384 signature|
+| <span class="opa-keep-it-together">``output := io.jwt.verify_rs512(string, certificate)``</span> | ``output`` is ``true`` if the RS512 signature of the input token is valid. ``certificate`` is the PEM encoded certificate, PEM encoded public key, or the JWK key (set) used to verify the RS512 signature|
 | <span class="opa-keep-it-together">``output := io.jwt.verify_ps256(string, certificate)``</span> | ``output`` is ``true`` if the PS256 signature of the input token is valid. ``certificate`` is the PEM encoded certificate, PEM encoded public key or the JWK key (set) used to verify the PS256 signature|
+| <span class="opa-keep-it-together">``output := io.jwt.verify_ps384(string, certificate)``</span> | ``output`` is ``true`` if the PS384 signature of the input token is valid. ``certificate`` is the PEM encoded certificate, PEM encoded public key or the JWK key (set) used to verify the PS384 signature|
+| <span class="opa-keep-it-together">``output := io.jwt.verify_ps512(string, certificate)``</span> | ``output`` is ``true`` if the PS512 signature of the input token is valid. ``certificate`` is the PEM encoded certificate, PEM encoded public key or the JWK key (set) used to verify the PS512 signature|
 | <span class="opa-keep-it-together">``output := io.jwt.verify_es256(string, certificate)``</span> | ``output`` is ``true`` if the ES256 signature of the input token is valid. ``certificate`` is the PEM encoded certificate, PEM encoded public key or the JWK key (set) used to verify the ES256 signature|
+| <span class="opa-keep-it-together">``output := io.jwt.verify_es384(string, certificate)``</span> | ``output`` is ``true`` if the ES384 signature of the input token is valid. ``certificate`` is the PEM encoded certificate, PEM encoded public key or the JWK key (set) used to verify the ES384 signature|
+| <span class="opa-keep-it-together">``output := io.jwt.verify_es512(string, certificate)``</span> | ``output`` is ``true`` if the ES512 signature of the input token is valid. ``certificate`` is the PEM encoded certificate, PEM encoded public key or the JWK key (set) used to verify the ES512 signature|
 | <span class="opa-keep-it-together">``output := io.jwt.verify_hs256(string, secret)``</span> | ``output`` is ``true`` if the Secret signature of the input token is valid. ``secret`` is a plain text secret used to verify the HS256 signature|
+| <span class="opa-keep-it-together">``output := io.jwt.verify_hs384(string, secret)``</span> | ``output`` is ``true`` if the Secret signature of the input token is valid. ``secret`` is a plain text secret used to verify the HS384 signature|
+| <span class="opa-keep-it-together">``output := io.jwt.verify_hs512(string, secret)``</span> | ``output`` is ``true`` if the Secret signature of the input token is valid. ``secret`` is a plain text secret used to verify the HS512 signature|
 | <span class="opa-keep-it-together">``output := io.jwt.decode(string)``</span> | ``output`` is of the form ``[header, payload, sig]``.  ``header`` and ``payload`` are ``object``. ``sig`` is the hexadecimal representation of the signature on the token. |
-| <span class="opa-keep-it-together">``output := io.jwt.decode_verify(string, constraints)``</span> | ``output`` is of the form ``[valid, header, payload]``.  If the input token verifies and meets the requirements of ``constraints`` then ``valid`` is ``true`` and ``header`` and ``payload`` are objects containing the JOSE header and the JWT claim set. Otherwise, ``valid`` is ``false`` and ``header`` and ``payload`` are ``{}``. |
+| <span class="opa-keep-it-together">``output := io.jwt.decode_verify(string, constraints)``</span> | ``output`` is of the form ``[valid, header, payload]``.  If the input token verifies and meets the requirements of ``constraints`` then ``valid`` is ``true`` and ``header`` and ``payload`` are objects containing the JOSE header and the JWT claim set. Otherwise, ``valid`` is ``false`` and ``header`` and ``payload`` are ``{}``. Supports the following algorithms: HS256, HS384, HS512, RS256, RS384, RS512, ES256, ES384, ES512, PS256, PS384 and PS512. |
 
 > Note that the `io.jwt.verify_XX` built-in methods verify **only** the signature. They **do not** provide any validation for the JWT
 > payload and any claims specified. The `io.jwt.decode_verify` built-in will verify the payload and **all** standard claims.
@@ -538,6 +783,7 @@ Note that the opa executable will need access to the timezone files in the envir
 | Built-in | Description |
 | -------- | ----------- |
 | <span class="opa-keep-it-together">``output := crypto.x509.parse_certificates(string)``</span> | ``output`` is an array of X.509 certificates represented as JSON objects. |
+| <span class="opa-keep-it-together">``output := crypto.x509.parse_certificate_request(csr)``</span> | ``csr`` is a base64 PEM encoded string and ``output`` is a X.509 PKCS #10 certificate represented as JSON object. |
 | <span class="opa-keep-it-together">``output := crypto.md5(string)``</span> | ``output`` is ``string`` md5 hashed. |
 | <span class="opa-keep-it-together">``output := crypto.sha1(string)``</span> | ``output`` is ``string`` sha1 hashed. |
 | <span class="opa-keep-it-together">``output := crypto.sha256(string)``</span> | ``output`` is ``string`` sha256 hashed. |
@@ -547,6 +793,39 @@ Note that the opa executable will need access to the timezone files in the envir
 | Built-in | Description |
 | --- | --- |
 | <span class="opa-keep-it-together">``walk(x, [path, value])``</span> | ``walk`` is a relation that produces ``path`` and ``value`` pairs for documents under ``x``. ``path`` is ``array`` representing a pointer to ``value`` in ``x``.  Queries can use ``walk`` to traverse documents nested under ``x`` (recursively). |
+| <span class="opa-keep-it-together">``output := graph.reachable(graph, initial)``</span> | ``output`` is the set of vertices [reachable](https://en.wikipedia.org/wiki/Reachability) from the ``initial`` vertices in the directed ``graph``.  ``initial`` is a set or array of vertices, and ``graph`` is an object containing a set or array of neighboring vertices. |
+
+A common class of recursive rules can be reduced to a graph reachability
+problem, so `graph.reachable` is useful for more than just graph analysis.
+This usually requires some pre- and postprocessing.  The following example
+shows you how to "flatten" a hierarchy of access permissions.
+
+```live:graph/reachable/example:module
+package graph_reachable_example
+
+org_chart_data = {
+  "ceo": {},
+  "human_resources": {"owner": "ceo", "access": ["salaries", "complaints"]},
+  "staffing": {"owner": "human_resources", "access": ["interviews"]},
+  "internships": {"owner": "staffing", "access": ["blog"]}
+}
+
+org_chart_graph[entity_name] = edges {
+  org_chart_data[entity_name]
+  edges := {neighbor | org_chart_data[neighbor].owner == entity_name}
+}
+
+org_chart_permissions[entity_name] = access {
+  org_chart_data[entity_name]
+  reachable := graph.reachable(org_chart_graph, {entity_name})
+  access := {item | reachable[k]; item := org_chart_data[k].access[_]}
+}
+```
+```live:graph/reachable/example:query
+org_chart_permissions[entity_name]
+```
+```live:graph/reachable/example:output
+```
 
 ### HTTP
 
