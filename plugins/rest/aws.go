@@ -5,6 +5,7 @@
 package rest
 
 import (
+	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/json"
@@ -215,6 +216,11 @@ func signV4(req *http.Request, credService awsCredentialService, theTime time.Ti
 		if err != nil {
 			return errors.New("error getting request body: " + err.Error())
 		}
+		// Body ReadCloser can be read only once, so we need to set the it again
+		// otherwise httpClient.Do(req) will fail
+		reader := bytes.NewReader(body)
+		req.Body = ioutil.NopCloser(reader)
+
 	}
 	creds, err := credService.credentials()
 	if err != nil {
